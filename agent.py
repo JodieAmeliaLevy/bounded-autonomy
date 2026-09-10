@@ -30,7 +30,9 @@ import json
 from gateway import check, identity_for
 import tools
 
-MODEL = os.environ.get("MODEL", "claude-sonnet-4-5")
+# Override with the MODEL environment variable. claude-haiku-4-5-20251001 is
+# the cheap option; for the red team a more capable adversary is the point.
+MODEL = os.environ.get("MODEL", "claude-sonnet-5")
 
 # ---------------------------------------------------------------------------
 # The tools we advertise to the model. Names here must match the gateway's

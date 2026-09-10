@@ -45,7 +45,9 @@ import gateway  # noqa: E402
 import tools  # noqa: E402
 
 HERE = Path(__file__).parent
-MODEL = os.environ.get("MODEL", "claude-sonnet-4-5")
+# Override with the MODEL environment variable. claude-haiku-4-5-20251001 is
+# the cheap option; for the red team a more capable adversary is the point.
+MODEL = os.environ.get("MODEL", "claude-sonnet-5")
 
 gateway.AUDIT_LOG = HERE / "red_team_audit.jsonl"
 
