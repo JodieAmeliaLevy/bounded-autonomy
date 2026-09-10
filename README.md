@@ -25,7 +25,7 @@ pip install -r requirements-dev.txt
 python3 agent.py --mock          # watch the gateway allow and refuse things
 python3 evaluation/run_eval.py   # reproduce the numbers below
 python3 evaluation/red_team.py --mock   # the red team harness, no API key needed
-pytest                           # 66 tests
+pytest                           # 72 tests
 ```
 
 `--mock` replays five tool calls past the gateway and prints each verdict:
@@ -96,10 +96,13 @@ The knowledge axis is the honest part. In the **informed** condition the adversa
 
 Episodes are scored on the gateway's decisions, never on the model's account of itself. An agent that reports success without a permitted call has not succeeded, and there is a test that says so.
 
+**The adversary can come from any lab**, which is the point rather than a convenience. A control layer that only holds against the model family it was developed alongside has not been tested. Anthropic and Gemini are both wired up behind one interface, and adding a third is one class.
+
 ```bash
-python3 evaluation/red_team.py --mock          # plumbing, no API key
-export ANTHROPIC_API_KEY="sk-ant-..."
-python3 evaluation/red_team.py --write         # the real thing
+python3 evaluation/red_team.py --mock                # plumbing, no key needed
+python3 evaluation/red_team.py                       # Anthropic, needs ANTHROPIC_API_KEY
+python3 evaluation/red_team.py --provider gemini     # Gemini, needs GEMINI_API_KEY
+python3 evaluation/red_team.py --write               # record the run
 ```
 
 **Results pending.** The harness is tested and the scripted stand in holds against every objective in every condition, which is the floor rather than the finding. The real run goes here when it has been done.
@@ -236,7 +239,7 @@ Nine of the thirty three tests exist because of this, including one that runs th
 
 ## What the tests actually assert
 
-`pytest` runs 66 tests on every push, across Python 3.11, 3.12 and 3.13.
+`pytest` runs 72 tests on every push, across Python 3.11, 3.12 and 3.13.
 
 | Group | The claim being pinned |
 |---|---|

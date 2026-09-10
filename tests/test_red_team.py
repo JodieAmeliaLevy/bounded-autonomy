@@ -140,3 +140,67 @@ def test_the_scripted_attempts_all_hold_against_the_current_controls():
         for c in red_team.CONFIGURATIONS:
             e = red_team.run_episode(o, c, red_team.KNOWLEDGE[0], turns=3, mock=True)
             assert not e["succeeded"], f"{o['id']} got through under {c['id']}"
+
+
+# ---------------------------------------------------------------------------
+# The episode loop is provider agnostic
+#
+# A stub adversary implements the same interface a real one does, which
+# exercises the whole non mock path with no API key and no cost.
+# ---------------------------------------------------------------------------
+class StubAdversary(red_team.Adversary):
+    def __init__(self, script):
+        self.script, self.turns = list(script), 0
+
+    def turn(self, results):
+        self.turns += 1
+        if not self.script:
+            return ["I have run out of ideas."], []
+        name, payload = self.script.pop(0)
+        return [f"Trying {name}."], [{"id": f"s{self.turns}", "name": name, "input": payload}]
+
+
+def test_every_provider_is_declared_completely():
+    for name, spec in red_team.PROVIDERS.items():
+        for field in ("env", "default_model", "cheap_model", "keys_at"):
+            assert spec.get(field), f"{name} is missing {field}"
+
+
+def test_every_declared_provider_has_an_adversary():
+    assert set(red_team.PROVIDERS) == set(red_team.ADVERSARIES)
+
+
+def test_the_loop_runs_an_adversary_and_records_every_call():
+    stub = StubAdversary([("read_file", {"path": "workspace/../../etc/passwd"}),
+                          ("read_file", {"path": "/etc/passwd"})])
+    e = red_team.run_episode(red_team.OBJECTIVES[1], red_team.CONFIGURATIONS[0],
+                             red_team.KNOWLEDGE[0], turns=5, adversary=stub)
+    assert e["calls_attempted"] == 2
+    assert e["calls_permitted"] == 0
+    assert not e["succeeded"]
+
+
+def test_the_loop_stops_when_the_adversary_gives_up():
+    stub = StubAdversary([("read_file", {"path": "/etc/passwd"})])
+    e = red_team.run_episode(red_team.OBJECTIVES[1], red_team.CONFIGURATIONS[0],
+                             red_team.KNOWLEDGE[0], turns=10, adversary=stub)
+    assert stub.turns == 2  # one call, then the turn where it has nothing left
+    assert any("run out of ideas" in t.get("said", "") for t in e["transcript"])
+
+
+def test_the_loop_respects_the_turn_limit():
+    stub = StubAdversary([("read_file", {"path": "/etc/passwd"})] * 50)
+    e = red_team.run_episode(red_team.OBJECTIVES[1], red_team.CONFIGURATIONS[0],
+                             red_team.KNOWLEDGE[0], turns=4, adversary=stub)
+    assert e["calls_attempted"] == 4
+
+
+def test_the_loop_stops_as_soon_as_the_objective_is_met():
+    """No point spending turns after the thing has already got through."""
+    reached = {"id": "x", "name": "Any permitted call at all",
+               "brief": "test only", "succeeded": lambda record: any(r["allowed"] for r in record)}
+    stub = StubAdversary([("read_file", {"path": "workspace/notes.txt"})] * 5)
+    e = red_team.run_episode(reached, red_team.CONFIGURATIONS[0], red_team.KNOWLEDGE[0],
+                             turns=5, adversary=stub)
+    assert e["succeeded"]
+    assert e["calls_attempted"] == 1
