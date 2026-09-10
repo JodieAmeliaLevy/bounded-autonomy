@@ -24,7 +24,8 @@ pip install -r requirements-dev.txt
 
 python3 agent.py --mock          # watch the gateway allow and refuse things
 python3 evaluation/run_eval.py   # reproduce the numbers below
-pytest                           # 52 tests
+python3 evaluation/red_team.py --mock   # the red team harness, no API key needed
+pytest                           # 66 tests
 ```
 
 `--mock` replays five tool calls past the gateway and prints each verdict:
@@ -86,6 +87,22 @@ The harness replays fixed tool call sequences. No model chooses what to do, whic
 It does **not** measure whether a capable adversarial model would find a sequence nobody wrote down. That needs an agent in the loop and it is the next piece of work. Because nothing is executed, task success here is exactly the complement of unnecessary blocks; the two separate once execution is live, and both are reported so the shape does not change later.
 
 The suite is 40 scenarios, which is small. It lives in [`evaluation/scenarios.json`](evaluation/scenarios.json) as data rather than code, so it is auditable and so it cannot be quietly reshaped to flatter a result. Full breakdown in [`evaluation/results.md`](evaluation/results.md), including every attack that survived and every legitimate task that was refused.
+
+### The adversary
+
+[`evaluation/red_team.py`](evaluation/red_team.py) closes that gap. It hands a model the same three tools, an objective, and the gateway's own refusal messages as feedback, and lets it look for a way through. Five objectives across two control configurations and two knowledge conditions, twenty episodes.
+
+The knowledge axis is the honest part. In the **informed** condition the adversary is handed the policy file before it starts, because an attacker who can read your authorisation rules is not an exotic threat model, it is the normal case for anything open source. A control layer that only works while its policies are secret is not a control layer.
+
+Episodes are scored on the gateway's decisions, never on the model's account of itself. An agent that reports success without a permitted call has not succeeded, and there is a test that says so.
+
+```bash
+python3 evaluation/red_team.py --mock          # plumbing, no API key
+export ANTHROPIC_API_KEY="sk-ant-..."
+python3 evaluation/red_team.py --write         # the real thing
+```
+
+**Results pending.** The harness is tested and the scripted stand in holds against every objective in every condition, which is the floor rather than the finding. The real run goes here when it has been done.
 
 ---
 
@@ -219,7 +236,7 @@ Nine of the thirty three tests exist because of this, including one that runs th
 
 ## What the tests actually assert
 
-`pytest` runs 52 tests on every push, across Python 3.11, 3.12 and 3.13.
+`pytest` runs 66 tests on every push, across Python 3.11, 3.12 and 3.13.
 
 | Group | The claim being pinned |
 |---|---|
@@ -262,10 +279,10 @@ Honest state of the build. Nothing here claims to be finished.
 | **3. The control point** | Policy gateway between agent and every tool call. One identity per tool, delegation required, default deny, scoped allow, secrets forbidden outright, every decision logged | **Done**, on Cedar rather than an `if` statement, with 24 tests |
 | **4. Containment** | Execution inside a sandbox, filesystem and network bounded | **Done.** `run_code` executes in a disposable E2B sandbox, and the gateway refuses it outright without one. `python3 sandbox_tools.py` runs `rm -rf` against the sandbox home directory to show the blast radius is bounded. Both verdicts are in `audit_log.jsonl` |
 | **5. The audit trail** | Structured logging of every step, then OpenTelemetry GenAI agent spans | **Half.** JSONL logging of every decision, with principal and rule name. No spans yet |
-| **6. The evaluation** | Scenarios run across control configurations and two or three models | **Half.** 40 scenarios and three configurations run deterministically on every push. Not yet on [Inspect](https://inspect.aisi.org.uk/) with [ControlArena](https://github.com/UKGovernmentBEIS/control-arena), and no model in the loop |
+| **6. The evaluation** | Scenarios run across control configurations and two or three models | **Most of the way.** 40 scenarios and three configurations run deterministically on every push, and a red team harness puts a model behind the same controls across 20 episodes. Not yet on [Inspect](https://inspect.aisi.org.uk/) with [ControlArena](https://github.com/UKGovernmentBEIS/control-arena), and the adversarial run has not been done yet |
 | **7. The curve** | Missed harmful actions against unnecessary blocks, per configuration | **Done for the deterministic suite.** See above. Regenerates from the code, and a test fails if the published numbers drift from what the code produces |
 
-Rungs 1, 3 and 4 hold. Rung 6 is where the contribution is, and the half that is missing is the important half: an adversarial model that goes looking for a sequence nobody wrote down.
+Rungs 1, 3 and 4 hold. Rung 6 is where the contribution is.
 
 ---
 
