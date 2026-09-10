@@ -188,4 +188,4 @@ What is missing is measurement. This repository is the small, unarguable version
 
 ---
 
-Jodie Levy · [jodielevy.substack.com](https://jodielevy.substack.com) · LinkedIn: PASTE YOUR OWN URL HERE
+Jodie Levy · [jodielevy.substack.com](https://jodielevy.substack.com) · LinkedIn: [https://www.linkedin.com/in/jodie-amelia/]
