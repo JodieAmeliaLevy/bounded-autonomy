@@ -16,3 +16,6 @@ secrets/
 
 # macOS
 .DS_Store
+
+# Local staging, never part of the project
+_for_github/

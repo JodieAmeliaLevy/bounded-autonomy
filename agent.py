@@ -12,15 +12,22 @@ Two ways to run it:
   python3 agent.py "Read workspace/notes.txt and summarise it in one line"
       The real thing. Needs ANTHROPIC_API_KEY set in your terminal.
 
-  Add --sandbox to either mode once you reach rung four, to route run_code
-  into the E2B sandbox.
+  Add --sandbox to either mode to route run_code into an E2B sandbox. Worth
+  doing even with no E2B account: the gateway's verdict on run_code flips from
+  DENY to ALLOW, because the permission is conditional on the boundary existing.
+  The tool then fails for the honest reason that no sandbox is configured.
+
+Every tool acts as its own identity. read_file acts as Agent::"reader",
+fetch_url as Agent::"fetcher" and run_code as Agent::"executor". Each one is
+denied everything the other two are allowed, so a compromised tool cannot
+borrow another tool's reach. See gateway.py and policies/agent_policies.cedar.
 """
 
 import os
 import sys
 import json
 
-from gateway import check
+from gateway import check, identity_for
 import tools
 
 MODEL = os.environ.get("MODEL", "claude-sonnet-4-5")
@@ -103,7 +110,7 @@ def run_mock(use_sandbox: bool):
         ("run_code", {"code": "print(2 + 2)"}),
     ]
     for name, tool_input in script:
-        print(f">> agent wants: {name}({json.dumps(tool_input)})")
+        print(f'>> Agent::"{identity_for(name)}" wants: {name}({json.dumps(tool_input)})')
         result = execute_tool(name, tool_input, use_sandbox)
         first_line = result.strip().splitlines()[0] if result.strip() else "(empty)"
         print(f"   result: {first_line[:120]}\n")
@@ -140,7 +147,7 @@ def run_real(task: str, use_sandbox: bool):
         results = []
         for block in response.content:
             if block.type == "tool_use":
-                print(f"\n>> agent wants: {block.name}({json.dumps(block.input)})")
+                print(f'\n>> Agent::"{identity_for(block.name)}" wants: {block.name}({json.dumps(block.input)})')
                 outcome = execute_tool(block.name, block.input, use_sandbox)
                 first_line = outcome.strip().splitlines()[0] if outcome.strip() else "(empty)"
                 print(f"   result: {first_line[:120]}")
