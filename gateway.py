@@ -29,6 +29,8 @@ from cedarpy import is_authorized, AuthzResult
 
 HERE = Path(__file__).parent
 
+WORKSPACE = (HERE / "workspace").resolve()
+
 POLICY_FILE = HERE / "policies" / "agent_policies.cedar"
 POLICIES = POLICY_FILE.read_text()
 
@@ -78,8 +80,18 @@ def _resource_for(tool_name: str, tool_input: dict):
     """Translate a tool call into the resource Cedar reasons about."""
 
     if tool_name == "read_file":
-        path = tool_input.get("path", "")
-        return {"type": "File", "id": path}, {"path": path}
+        # Canonicalise before anyone reasons about it. "workspace/notes.txt",
+        # "workspace/../workspace/notes.txt" and the absolute path are the same
+        # file, and a policy that cannot see that is a policy you can walk past.
+        requested = Path(tool_input.get("path", ""))
+        if not requested.is_absolute():
+            requested = HERE / requested
+        resolved = requested.resolve()
+
+        return (
+            {"type": "File", "id": str(resolved)},
+            {"path": str(resolved), "inside_workspace": resolved.is_relative_to(WORKSPACE)},
+        )
 
     if tool_name == "fetch_url":
         url = tool_input.get("url", "")
@@ -169,9 +181,17 @@ def check(
         "on_behalf_of": f'User::"{HUMAN_PRINCIPAL["id"]}"' if delegated else None,
         "tool": tool_name,
         "input": tool_input,
+        "resource": request["resource"]["id"],
         "context": context or {},
         "decision": "ALLOW" if allowed else "DENY",
         "reason": reason,
     })
 
-    return {"allowed": allowed, "reason": reason, "identity": identity}
+    # The caller must act on the resource the policy judged, not on the string
+    # the model asked for. If those two can differ, the check is decorative.
+    return {
+        "allowed": allowed,
+        "reason": reason,
+        "identity": identity,
+        "resource": request["resource"]["id"],
+    }

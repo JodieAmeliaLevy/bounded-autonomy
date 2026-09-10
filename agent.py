@@ -86,7 +86,8 @@ def execute_tool(name: str, tool_input: dict, use_sandbox: bool) -> str:
         return f"BLOCKED BY POLICY GATEWAY: {verdict['reason']}"
 
     if name == "read_file":
-        return tools.read_file(tool_input["path"])
+        # The resource the gateway authorised, not the string the model sent.
+        return tools.read_file(verdict["resource"])
     if name == "fetch_url":
         return tools.fetch_url(tool_input["url"])
     if name == "run_code":

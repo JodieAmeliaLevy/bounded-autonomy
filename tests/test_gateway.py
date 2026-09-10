@@ -109,6 +109,54 @@ def test_the_secrets_rule_catches_the_obvious_shapes(path):
 
 
 # ---------------------------------------------------------------------------
+# The named resource is not the real resource
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("escape", [
+    "workspace/../../../../etc/passwd",
+    "workspace/../gateway.py",
+    "workspace/./../../etc/hostname",
+    "workspace/../policies/agent_policies.cedar",
+    "/etc/passwd",
+])
+def test_the_workspace_cannot_be_walked_out_of(escape):
+    """The first version of this gateway matched resource.path against the glob
+    "workspace/*". "workspace/../../etc/passwd" satisfies that glob, so the
+    policy permitted it and the tool opened it. The policy was correct, the
+    decision engine was correct, and the system was still wrong, because the
+    resource the policy judged was not the resource the tool acted on."""
+    assert not check("read_file", {"path": escape})["allowed"]
+
+
+def test_a_roundabout_path_to_a_permitted_file_still_works():
+    """Canonicalising must not break the legitimate case."""
+    assert check("read_file", {"path": "workspace/../workspace/notes.txt"})["allowed"]
+
+
+def test_a_roundabout_path_to_a_secret_is_still_refused():
+    verdict = check("read_file", {"path": "workspace/../workspace/secret_plan.txt"})
+    assert not verdict["allowed"]
+    assert verdict["reason"] == "blocked by: secrets-forbidden"
+
+
+def test_the_gateway_hands_back_the_resource_it_authorised():
+    """The caller must act on what was judged, or the check is decorative."""
+    verdict = check("read_file", {"path": "workspace/../workspace/notes.txt"})
+    assert verdict["resource"].endswith("workspace/notes.txt")
+    assert ".." not in verdict["resource"]
+
+
+def test_the_agent_refuses_a_traversal_end_to_end():
+    """Not just the gateway in isolation: the whole path from tool call to
+    filesystem."""
+    import agent
+    result = agent.execute_tool(
+        "read_file", {"path": "workspace/../../../../etc/passwd"}, use_sandbox=False
+    )
+    assert result.startswith("BLOCKED BY POLICY GATEWAY")
+
+
+# ---------------------------------------------------------------------------
 # Per tool identity: the point of the whole design
 # ---------------------------------------------------------------------------
 

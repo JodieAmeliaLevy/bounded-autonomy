@@ -53,7 +53,7 @@ permit(
   resource
 ) when {
   principal has on_behalf_of &&
-  resource.path like "workspace/*"
+  resource.inside_workspace == true
 };
 
 // ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 
 python3 agent.py --mock     # watch the gateway allow and refuse things
-pytest                      # 24 tests over the control point
+pytest                      # 33 tests over the control point
 ```
 
 `--mock` replays five tool calls past the gateway and prints each verdict:
@@ -119,7 +119,7 @@ task ──▶ agent ──▶ [ policy gateway ] ──▶ tool
 | `policies/agent_policies.cedar` | The Policy Decision Point. Five named policies over a default deny |
 | `tools.py` | The tools. Deliberately contains no security logic of any kind |
 | `sandbox_tools.py` | Code execution inside a disposable E2B sandbox |
-| `tests/test_gateway.py` | 24 tests. The README's claims, written down as assertions |
+| `tests/test_gateway.py` | 33 tests. The README's claims, written down as assertions |
 | `audit_log.jsonl` | A sample log from one mock run |
 
 The separation is the point. The tools do not decide what they are allowed to do, and neither does the agent's plan. That is the argument AWS makes plainly about choosing Cedar for Bedrock AgentCore: "the LLM's plan is the thing you can't trust—it can't be responsible for enforcing its own constraints" ([AWS Security Blog, 20 May 2026](https://aws.amazon.com/blogs/security/why-policy-in-amazon-bedrock-agentcore-chose-cedar-for-securing-agentic-workflows/), Liana Hadarean and Jean-Baptiste Tristan).
@@ -156,13 +156,33 @@ forbid(
 
 An identity presenting no human principal gets nothing at all, whatever else the policies permit, because a `forbid` beats every `permit` in Cedar. This is the delegation idea in [South et al.](https://arxiv.org/abs/2501.09674) made enforceable rather than documented. The chain is currently one link deep and recorded in every audit line; scoping permissions to the delegating user is the next step.
 
+### The bug this had, and what fixing it changed
+
+The first version of this gateway authorised file reads with a string glob:
+
+```cedar
+resource.path like "workspace/*"
+```
+
+`workspace/../../../../etc/passwd` satisfies that glob. The policy permitted it, the tool opened it, and the system password file came back.
+
+Nothing was wrong with Cedar and nothing was wrong with the rule. The resource the policy judged was a string supplied by the model, the resource the tool opened was a file on disk, and the two were allowed to mean different things.
+
+The fix has three parts and only the first is about strings:
+
+1. The gateway resolves the requested path to a canonical absolute form before it builds the Cedar request. Normalising the resource is the enforcement point's job; deciding is still the decision point's.
+2. The policy asks whether the resolved file is genuinely inside the workspace, rather than whether some text begins with the right prefix.
+3. The gateway hands the resolved resource back to the caller and the agent opens **that**. Canonicalising inside the gateway alone would have turned most of the tests green while leaving the real defect in place, because authorising one thing and then acting on another is the bug. The string handling was only how it surfaced.
+
+Nine of the thirty three tests exist because of this, including one that runs the whole path from tool call to filesystem rather than testing the gateway in isolation.
+
 **Worked example: MCP.** The MCP specification makes authorisation optional ("Authorization is **OPTIONAL** for MCP implementations", [spec 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)), which makes an MCP estate the natural place to show what an external control point changes.
 
 ---
 
 ## What the tests actually assert
 
-`pytest` runs 24 tests on every push, across Python 3.11, 3.12 and 3.13.
+`pytest` runs 33 tests on every push, across Python 3.11, 3.12 and 3.13.
 
 | Group | The claim being pinned |
 |---|---|
@@ -173,6 +193,7 @@ An identity presenting no human principal gets nothing at all, whatever else the
 | Per tool identity | The reader cannot reach the network, the fetcher cannot touch the filesystem, and the reader cannot execute code even inside a real sandbox |
 | Delegation | An identity with no human behind it is refused every tool |
 | The audit trail | Denials are logged and not merely returned, and each record names the principal and the rule |
+| Canonicalisation | The workspace cannot be walked out of with `..`, a roundabout path to a permitted file still works, and the gateway hands back the resource it judged |
 | Drift guards | Policy names match the file in order, and every tool the agent advertises has an identity |
 
 The drift guards matter more than they look. They are what stops this README from slowly becoming a description of a system that no longer exists.
@@ -208,6 +229,8 @@ Honest state of the build. Nothing here claims to be finished.
 | **7. The curve** | Missed harmful actions against unnecessary blocks, per configuration | Not started |
 
 Rungs 1 and 3 are the load bearing ones and they hold. Rungs 6 and 7 are the contribution, and they are the work of the fellowship.
+
+`LEARNING.md` tracks what I understood on each build day that I did not the day before.
 
 ---
 
