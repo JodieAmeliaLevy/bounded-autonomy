@@ -209,8 +209,6 @@ Honest state of the build. Nothing here claims to be finished.
 
 Rungs 1 and 3 are the load bearing ones and they hold. Rungs 6 and 7 are the contribution, and they are the work of the fellowship.
 
-`LEARNING.md` tracks what I understood on each build day that I did not the day before.
-
 ---
 
 ## Running it in full
