@@ -91,7 +91,14 @@ The `reason` is the name of the Cedar rule that actually fired. `gateway.py` rea
 
 `print(2 + 2)` is harmless, and it is refused. Not because the code is dangerous, but because the call arrived with `sandboxed: false`, and no policy permits execution outside a boundary. The gateway is not judging the code. It is judging whether the containment that would make the code survivable is actually in place.
 
-Run `python3 agent.py --mock --sandbox` and the same call is permitted, then fails honestly because no sandbox is configured. The verdict flips because the boundary changed, not because the code did.
+Run `python3 agent.py --mock --sandbox` and the same call is permitted. Both runs are in the committed audit log, five lines apart:
+
+```
+DENY   Agent::"executor"  run_code  sandboxed=False  blocked by default deny: no policy permits this call
+ALLOW  Agent::"executor"  run_code  sandboxed=True   permitted by: executor-may-run-code-in-sandbox
+```
+
+Same code, same identity, same delegation, same policy file. The only thing that changed between those two lines is whether the boundary was real, and the permission appeared and disappeared with it. That pair is the argument of this project as data rather than as prose.
 
 ---
 
@@ -104,7 +111,7 @@ task ──▶ agent ──▶ [ policy gateway ] ──▶ tool
                      default deny
                      scoped allow
                           │
-                          ├──▶ sandbox (filesystem and network bounded)   written, unproven
+                          ├──▶ sandbox (filesystem and network bounded)
                           ├──▶ monitor                                    not built
                           └──▶ audit log  ── who · on whose authority · what tool
                                             · which rule fired · what result
@@ -223,12 +230,12 @@ Honest state of the build. Nothing here claims to be finished.
 | **1. Agent with tool calls** | Raw API loop, three tools, a hard turn limit, no framework I cannot explain line by line | **Done** |
 | **2. MCP in the loop** | One reference MCP server, agent tools routed through it | Not started |
 | **3. The control point** | Policy gateway between agent and every tool call. One identity per tool, delegation required, default deny, scoped allow, secrets forbidden outright, every decision logged | **Done**, on Cedar rather than an `if` statement, with 24 tests |
-| **4. Containment** | Execution inside a sandbox, filesystem and network bounded | **Written, not yet proven.** `sandbox_tools.py` runs code in a disposable E2B sandbox and the gateway already refuses `run_code` without one. No sandboxed run has been recorded in the audit log yet |
+| **4. Containment** | Execution inside a sandbox, filesystem and network bounded | **Done.** `run_code` executes in a disposable E2B sandbox, and the gateway refuses it outright without one. `python3 sandbox_tools.py` runs `rm -rf` against the sandbox home directory to show the blast radius is bounded. Both verdicts are in `audit_log.jsonl` |
 | **5. The audit trail** | Structured logging of every step, then OpenTelemetry GenAI agent spans | **Half.** JSONL logging of every decision, with principal and rule name. No spans yet |
 | **6. The evaluation** | Scenarios run under [Inspect](https://inspect.aisi.org.uk/) with [ControlArena](https://github.com/UKGovernmentBEIS/control-arena), across control configurations and two or three models | Not started |
 | **7. The curve** | Missed harmful actions against unnecessary blocks, per configuration | Not started |
 
-Rungs 1 and 3 are the load bearing ones and they hold. Rungs 6 and 7 are the contribution, and they are the work of the fellowship.
+Rungs 1, 3 and 4 are the load bearing ones and they hold. Rungs 6 and 7 are the contribution, and they are the work of the fellowship.
 
 ---
 
