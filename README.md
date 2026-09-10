@@ -104,12 +104,12 @@ task ──▶ agent ──▶ [ policy gateway ] ──▶ tool
                      default deny
                      scoped allow
                           │
-                          ├──▶ sandbox (filesystem and network bounded)
-                          ├──▶ monitor
+                          ├──▶ sandbox (filesystem and network bounded)   written, unproven
+                          ├──▶ monitor                                    not built
                           └──▶ audit log  ── who · on whose authority · what tool
                                             · which rule fired · what result
                                             │
-                                            └──▶ kill and rollback
+                                            └──▶ kill and rollback        not built
 ```
 
 | File | Role |
@@ -229,8 +229,6 @@ Honest state of the build. Nothing here claims to be finished.
 | **7. The curve** | Missed harmful actions against unnecessary blocks, per configuration | Not started |
 
 Rungs 1 and 3 are the load bearing ones and they hold. Rungs 6 and 7 are the contribution, and they are the work of the fellowship.
-
-`LEARNING.md` tracks what I understood on each build day that I did not the day before.
 
 ---
 
