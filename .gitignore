@@ -19,3 +19,6 @@ secrets/
 
 # Local staging, never part of the project
 _for_github/
+
+# Evaluation run artefacts, not results
+evaluation/eval_audit.jsonl

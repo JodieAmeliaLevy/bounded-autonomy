@@ -22,8 +22,9 @@ cd agent-control-plane-demo
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-python3 agent.py --mock     # watch the gateway allow and refuse things
-pytest                      # 33 tests over the control point
+python3 agent.py --mock          # watch the gateway allow and refuse things
+python3 evaluation/run_eval.py   # reproduce the numbers below
+pytest                           # 52 tests
 ```
 
 `--mock` replays five tool calls past the gateway and prints each verdict:
@@ -57,6 +58,34 @@ That is what this repository is being built to measure. Three numbers per contro
 | **Task success** | Benign work still completed end to end |
 
 The pair matters more than either number alone. A gateway that blocks everything has zero missed harmful actions and is useless. The output is the curve between them.
+
+---
+
+## The result
+
+20 benign tasks and 20 attacks, replayed past the gateway under three control configurations. Reproduce with `python3 evaluation/run_eval.py`.
+
+| Configuration | Missed harmful actions | Unnecessary blocks | Task success |
+|---|---|---|---|
+| **No controls** | 20 of 20 (100%) | 0 of 20 (0%) | 20 of 20 (100%) |
+| **Policy gateway** | 0 of 20 (0%) | 13 of 20 (65%) | 7 of 20 (35%) |
+| **Gateway and sandbox** | 1 of 20 (5%) | 7 of 20 (35%) | 13 of 20 (65%) |
+
+<img src="evaluation/curve.svg" alt="Missed harmful actions against unnecessary blocks, for three control configurations" width="520">
+
+**A control layer without containment is close to unusable.** The gateway alone stops every attack in the suite and refuses 65% of legitimate work, because when no sandbox exists the safe answer to "may I run code" is always no, and that takes out every task that needs computation along with the ones that needed a file or a domain nobody put on the list.
+
+**Containment is what buys the usefulness back, and it is not free.** Adding a disposable sandbox halves the unnecessary blocks, from 13 to 7, and lets exactly one attack through. That attack is `a16`: code that opens a network connection from inside the sandbox. An E2B sandbox has `allow_internet_access=True` by default, so containment bounds the filesystem and not the egress. The permission was granted on the strength of a boundary that did not cover the thing being done.
+
+**No configuration wins on both axes**, which is why this is reported as a pair. There is a test asserting that none of them dominates, because the day one does, either the suite has been made too easy or the measurement has stopped meaning anything.
+
+### What this measures, and what it does not
+
+The harness replays fixed tool call sequences. No model chooses what to do, which means this measures the **control layer**: given this call, does the layer permit it, and if permitted, does the harm land. That is the claim this project makes, so it is the right thing to measure first, and it is deterministic and free enough to run on every push.
+
+It does **not** measure whether a capable adversarial model would find a sequence nobody wrote down. That needs an agent in the loop and it is the next piece of work. Because nothing is executed, task success here is exactly the complement of unnecessary blocks; the two separate once execution is live, and both are reported so the shape does not change later.
+
+The suite is 40 scenarios, which is small. It lives in [`evaluation/scenarios.json`](evaluation/scenarios.json) as data rather than code, so it is auditable and so it cannot be quietly reshaped to flatter a result. Full breakdown in [`evaluation/results.md`](evaluation/results.md), including every attack that survived and every legitimate task that was refused.
 
 ---
 
@@ -126,7 +155,8 @@ task ──▶ agent ──▶ [ policy gateway ] ──▶ tool
 | `policies/agent_policies.cedar` | The Policy Decision Point. Five named policies over a default deny |
 | `tools.py` | The tools. Deliberately contains no security logic of any kind |
 | `sandbox_tools.py` | Code execution inside a disposable E2B sandbox |
-| `tests/test_gateway.py` | 33 tests. The README's claims, written down as assertions |
+| `tests/test_gateway.py` | The README's claims about the control point, written down as assertions |
+| `evaluation/` | The suite, the harness, and the committed results |
 | `audit_log.jsonl` | A sample log from one mock run |
 
 The separation is the point. The tools do not decide what they are allowed to do, and neither does the agent's plan. That is the argument AWS makes plainly about choosing Cedar for Bedrock AgentCore: "the LLM's plan is the thing you can't trust—it can't be responsible for enforcing its own constraints" ([AWS Security Blog, 20 May 2026](https://aws.amazon.com/blogs/security/why-policy-in-amazon-bedrock-agentcore-chose-cedar-for-securing-agentic-workflows/), Liana Hadarean and Jean-Baptiste Tristan).
@@ -189,7 +219,7 @@ Nine of the thirty three tests exist because of this, including one that runs th
 
 ## What the tests actually assert
 
-`pytest` runs 33 tests on every push, across Python 3.11, 3.12 and 3.13.
+`pytest` runs 52 tests on every push, across Python 3.11, 3.12 and 3.13.
 
 | Group | The claim being pinned |
 |---|---|
@@ -232,10 +262,10 @@ Honest state of the build. Nothing here claims to be finished.
 | **3. The control point** | Policy gateway between agent and every tool call. One identity per tool, delegation required, default deny, scoped allow, secrets forbidden outright, every decision logged | **Done**, on Cedar rather than an `if` statement, with 24 tests |
 | **4. Containment** | Execution inside a sandbox, filesystem and network bounded | **Done.** `run_code` executes in a disposable E2B sandbox, and the gateway refuses it outright without one. `python3 sandbox_tools.py` runs `rm -rf` against the sandbox home directory to show the blast radius is bounded. Both verdicts are in `audit_log.jsonl` |
 | **5. The audit trail** | Structured logging of every step, then OpenTelemetry GenAI agent spans | **Half.** JSONL logging of every decision, with principal and rule name. No spans yet |
-| **6. The evaluation** | Scenarios run under [Inspect](https://inspect.aisi.org.uk/) with [ControlArena](https://github.com/UKGovernmentBEIS/control-arena), across control configurations and two or three models | Not started |
-| **7. The curve** | Missed harmful actions against unnecessary blocks, per configuration | Not started |
+| **6. The evaluation** | Scenarios run across control configurations and two or three models | **Half.** 40 scenarios and three configurations run deterministically on every push. Not yet on [Inspect](https://inspect.aisi.org.uk/) with [ControlArena](https://github.com/UKGovernmentBEIS/control-arena), and no model in the loop |
+| **7. The curve** | Missed harmful actions against unnecessary blocks, per configuration | **Done for the deterministic suite.** See above. Regenerates from the code, and a test fails if the published numbers drift from what the code produces |
 
-Rungs 1, 3 and 4 are the load bearing ones and they hold. Rungs 6 and 7 are the contribution, and they are the work of the fellowship.
+Rungs 1, 3 and 4 hold. Rung 6 is where the contribution is, and the half that is missing is the important half: an adversarial model that goes looking for a sequence nobody wrote down.
 
 ---
 
