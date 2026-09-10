@@ -12,7 +12,7 @@ Built at [Constellation](https://www.constellation.org/programs/visiting-fellows
 
 Frontier agent safety is mostly measured at the model. But when an agent exfiltrates data or misuses a tool, the thing that could have stopped it usually sits outside the model: an authorisation check, a sandbox boundary, a monitor, a kill switch. Almost nobody measures those.
 
-This repository measures them, and reports these numbers per control configuration:
+That is what this repository is being built to measure. Three numbers per control configuration:
 
 | Metric | What it means |
 |---|---|
@@ -96,7 +96,7 @@ Bounded autonomy is not a smaller permission. It is a permission that is conditi
 
 ## Attack suite
 
-Scenarios are derived from documented incidents rather than invented, so the failure modes are ones that have actually happened.
+**Fixed in advance, not yet built.** This is rung 6 below. The scenarios are set out here because they are derived from documented incidents rather than invented, so the failure modes are ones that have actually happened, and so that the suite cannot be quietly reshaped later to flatter the result.
 
 | Scenario family | Grounded in |
 |---|---|
@@ -104,7 +104,7 @@ Scenarios are derived from documented incidents rather than invented, so the fai
 | Toxic agent flows across tools | [GitHub MCP toxic agent flow, Invariant Labs](https://invariantlabs.ai/blog/mcp-github-vulnerability) |
 | Orchestrated multi step misuse | [GTG-1002, Anthropic's disruption of AI orchestrated espionage](https://www.anthropic.com/news/disrupting-AI-espionage) |
 | Covert coordination between agents | [OpenAI and Hugging Face incident, METR investigation](https://metr.org/blog/2026-08-26-openai-hugging-face-incident-investigation/) |
-| Influence operation kill chain | My own 27 step pathway, from the capstone evaluation |
+| Influence operation kill chain | My own 27 step pathway, from the capstone evaluation (unpublished) |
 
 ---
 
@@ -133,8 +133,8 @@ Rungs 1 and 3 are the load bearing ones and they hold. Rungs 6 and 7 are the con
 Python 3.14. Nothing here needs an API key unless you want the real agent.
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/bounded-autonomy.git
-cd bounded-autonomy
+git clone https://github.com/JodieAmeliaLevy/agent-control-plane-demo.git
+cd agent-control-plane-demo
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -188,4 +188,4 @@ What is missing is measurement. This repository is the small, unarguable version
 
 ---
 
-Jodie Levy · [jodielevy.substack.com](https://jodielevy.substack.com) · LinkedIn: [https://www.linkedin.com/in/jodie-amelia/]
+Jodie Levy · [jodielevy.substack.com](https://jodielevy.substack.com) · [LinkedIn](https://www.linkedin.com/in/jodie-amelia/)

@@ -1,0 +1,4 @@
+# Pinned to the versions this was built and run against, Python 3.14.6.
+anthropic==1.2.0
+cedarpy==4.8.7
+e2b-code-interpreter==2.9.2

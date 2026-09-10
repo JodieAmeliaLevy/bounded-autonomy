@@ -1,0 +1,10 @@
+{"tool": "read_file", "input": {"path": "workspace/notes.txt"}, "context": {}, "decision": "ALLOW", "reason": "permitted by: allow reading files inside workspace/", "timestamp": 1787949332.524328}
+{"tool": "read_file", "input": {"path": "workspace/secret_plan.txt"}, "context": {}, "decision": "DENY", "reason": "blocked by: forbid anything that looks like a secret", "timestamp": 1787949332.524818}
+{"tool": "fetch_url", "input": {"url": "https://example.com/"}, "context": {}, "decision": "ALLOW", "reason": "permitted by: allow fetching from allowlisted domains", "timestamp": 1787949332.5252879}
+{"tool": "fetch_url", "input": {"url": "https://evil-exfil-site.com/upload"}, "context": {}, "decision": "DENY", "reason": "blocked by default deny: no policy permits this call", "timestamp": 1787949332.696621}
+{"tool": "run_code", "input": {"code": "print(2 + 2)"}, "context": {"sandboxed": false}, "decision": "DENY", "reason": "blocked by default deny: no policy permits this call", "timestamp": 1787949332.697273}
+{"tool": "read_file", "input": {"path": "workspace/notes.txt"}, "context": {}, "decision": "ALLOW", "reason": "permitted by: allow reading files inside workspace/", "timestamp": 1789071203.0956402}
+{"tool": "read_file", "input": {"path": "workspace/secret_plan.txt"}, "context": {}, "decision": "DENY", "reason": "blocked by: forbid anything that looks like a secret", "timestamp": 1789071203.096255}
+{"tool": "fetch_url", "input": {"url": "https://example.com/"}, "context": {}, "decision": "ALLOW", "reason": "permitted by: allow fetching from allowlisted domains", "timestamp": 1789071203.096483}
+{"tool": "fetch_url", "input": {"url": "https://evil-exfil-site.com/upload"}, "context": {}, "decision": "DENY", "reason": "blocked by default deny: no policy permits this call", "timestamp": 1789071203.5398452}
+{"tool": "run_code", "input": {"code": "print(2 + 2)"}, "context": {"sandboxed": false}, "decision": "DENY", "reason": "blocked by default deny: no policy permits this call", "timestamp": 1789071203.5402272}
