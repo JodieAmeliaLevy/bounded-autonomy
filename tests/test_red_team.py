@@ -7,7 +7,9 @@ cannot be satisfied by a refused call, and that the two knowledge conditions
 actually differ.
 """
 
+import json
 import re
+import sys
 
 import pytest
 
@@ -298,3 +300,16 @@ def test_a_quota_refusal_waits_long_enough_to_clear_the_window():
     finally:
         red_team.time.sleep = real_sleep
     assert all(w >= 65 for w in waits), waits
+
+
+def test_a_run_where_everything_errored_must_not_overwrite_a_real_result(tmp_path, monkeypatch):
+    """A failed run is evidence of nothing. Letting it overwrite a result that
+    did happen destroys data and replaces it with an artefact of an outage."""
+    monkeypatch.setattr(red_team, "HERE", tmp_path)
+    real = tmp_path / "red_team_results.json"
+    real.write_text('[{"objective": "o1", "succeeded": false, "status": "completed"}]')
+
+    monkeypatch.setattr(sys, "argv", ["red_team.py", "--mock", "--write", "--provider", "nope"])
+    red_team.main()  # unknown provider: returns before running anything
+
+    assert json.loads(real.read_text())[0]["status"] == "completed"

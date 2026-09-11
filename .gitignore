@@ -26,3 +26,4 @@ evaluation/red_team_audit.jsonl
 
 # filter-branch leftovers
 .git-rewrite/
+evaluation/red_team_results.partial.json
