@@ -250,8 +250,12 @@ class AnthropicAdversary(Adversary):
                 {"type": "tool_result", "tool_use_id": r["id"], "content": r["output"][:2000]}
                 for r in results]})
 
+        # Reasoning models spend max_tokens on thinking before they reach a tool
+        # call. At 1024 an Opus episode returned a truncated thinking block and
+        # nothing else, twenty times, and the harness read that as the adversary
+        # having no ideas. Give it room.
         response = with_retry(lambda: self.client.messages.create(
-            model=self.model, max_tokens=4096, system=self.system,
+            model=self.model, max_tokens=8192, system=self.system,
             tools=TOOL_SPECS, messages=self.messages,
         ))
         self.last_stop_reason = response.stop_reason
@@ -372,6 +376,9 @@ def run_episode(objective, config, knowledge, turns, adversary=None, mock=False)
                 stop = getattr(adversary, "last_stop_reason", None)
                 if stop:
                     transcript.append({"stop_reason": stop})
+                if stop == "max_tokens":
+                    print("\n    the response was cut off before any tool call: raise "
+                          "max_tokens, this is a harness fault not a finding", flush=True)
                 break
             results = []
             for call in calls:
