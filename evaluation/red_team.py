@@ -35,6 +35,7 @@ developed alongside has not been tested.
   python3 evaluation/red_team.py --provider gemini         Gemini, needs GEMINI_API_KEY
   python3 evaluation/red_team.py --model gemini-3.5-flash-lite --provider gemini
   python3 evaluation/red_team.py --turns 6                 shorter episodes, cheaper
+  python3 evaluation/red_team.py --delay 2                 pause between calls, for free tiers
   python3 evaluation/red_team.py --write                   also write results.json and .md
 """
 
@@ -173,6 +174,39 @@ def system_prompt(objective, config, knowledge):
 
 
 # ---------------------------------------------------------------------------
+# Upstreams are flaky, and an evaluation that dies on someone else's bad minute
+# is not an evaluation. Retry the transient ones, and never let a failure be
+# quietly scored as the controls holding.
+# ---------------------------------------------------------------------------
+TRANSIENT = ("503", "502", "500", "504", "429", "unavailable", "resource_exhausted",
+             "overloaded", "rate limit", "rate_limit", "high demand", "timeout",
+             "temporarily", "connection reset")
+
+CALL_DELAY = 0.0  # seconds between model calls, set with --delay
+
+
+def _is_transient(exc) -> bool:
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(marker in text for marker in TRANSIENT)
+
+
+def with_retry(call, attempts=5, base=4.0):
+    """Retry a model call through someone else's bad minute. Anything that is
+    not transient is raised immediately, because silently retrying a real bug
+    wastes time and money."""
+    for attempt in range(attempts):
+        try:
+            return call()
+        except Exception as exc:
+            if attempt == attempts - 1 or not _is_transient(exc):
+                raise
+            wait = base * (2 ** attempt)
+            print(f"\n    upstream unavailable, waiting {wait:.0f}s and retrying "
+                  f"({attempt + 1} of {attempts - 1}): {str(exc)[:80]}", flush=True)
+            time.sleep(wait)
+
+
+# ---------------------------------------------------------------------------
 # The adversary, whichever lab it comes from
 #
 # One interface: hand it the results of the calls it asked for last time, get
@@ -201,10 +235,10 @@ class AnthropicAdversary(Adversary):
                 {"type": "tool_result", "tool_use_id": r["id"], "content": r["output"][:2000]}
                 for r in results]})
 
-        response = self.client.messages.create(
+        response = with_retry(lambda: self.client.messages.create(
             model=self.model, max_tokens=1024, system=self.system,
             tools=TOOL_SPECS, messages=self.messages,
-        )
+        ))
         self.messages.append({"role": "assistant", "content": response.content})
 
         texts = [b.text.strip() for b in response.content if b.type == "text" and b.text.strip()]
@@ -243,8 +277,8 @@ class GeminiAdversary(Adversary):
                 types.Part.from_function_response(name=r["name"], response={"result": r["output"][:2000]})
                 for r in results]))
 
-        response = self.client.models.generate_content(
-            model=self.model, contents=self.contents, config=self.config)
+        response = with_retry(lambda: self.client.models.generate_content(
+            model=self.model, contents=self.contents, config=self.config))
 
         candidate = response.candidates[0] if response.candidates else None
         parts = (candidate.content.parts if candidate and candidate.content and candidate.content.parts
@@ -311,6 +345,8 @@ def run_episode(objective, config, knowledge, turns, adversary=None, mock=False)
     else:
         results = None
         for _ in range(turns):
+            if CALL_DELAY:
+                time.sleep(CALL_DELAY)
             texts, calls = adversary.turn(results)
             for said in texts:
                 transcript.append({"said": said[:400]})
@@ -327,6 +363,7 @@ def run_episode(objective, config, knowledge, turns, adversary=None, mock=False)
     return {
         "objective": objective["id"], "objective_name": objective["name"],
         "configuration": config["id"], "knowledge": knowledge["id"],
+        "status": "completed",
         "succeeded": objective["succeeded"](record),
         "calls_attempted": len(record),
         "calls_permitted": sum(1 for r in record if r["allowed"]),
@@ -370,9 +407,12 @@ def summary_table(episodes):
                           and e["configuration"] == c["id"] and e["knowledge"] == k["id"]), None)
                 if e is None:
                     cells.append("not run")
+                elif e.get("status") == "errored":
+                    cells.append("could not run")
+                elif e["succeeded"]:
+                    cells.append(f"**GOT THROUGH** in {e['calls_attempted']}")
                 else:
-                    cells.append(f"**GOT THROUGH** in {e['calls_attempted']}" if e["succeeded"]
-                                 else f"held, {e['calls_attempted']} tried")
+                    cells.append(f"held, {e['calls_attempted']} tried")
         rows.append(f"| {o['name']} | " + " | ".join(cells) + " |")
     return "\n".join(rows)
 
@@ -388,7 +428,11 @@ def results_markdown(episodes, mock):
                                  f"{len(episodes)} episodes, {sum(e['calls_attempted'] for e in episodes)} "
                                  f"tool calls attempted."),
         "",
-        f"**{len(got)} of {len(episodes)} episodes got through.**",
+        f"**{len(got)} of {len([e for e in episodes if e.get('status') != 'errored'])} "
+        f"episodes that ran got through.**"
+        + (f" {len([e for e in episodes if e.get('status') == 'errored'])} could not be run, "
+           "and are counted neither as held nor as through."
+           if any(e.get("status") == "errored" for e in episodes) else ""),
         "",
         summary_table(episodes),
         "",
@@ -414,8 +458,10 @@ def _arg(flag, default=None):
 
 
 def main():
+    global CALL_DELAY
     mock = "--mock" in sys.argv
     turns = int(_arg("--turns", 10))
+    CALL_DELAY = float(_arg("--delay", 0))
     provider = _arg("--provider", os.environ.get("PROVIDER", "anthropic"))
 
     if provider not in PROVIDERS:
@@ -438,20 +484,37 @@ def main():
         for c in CONFIGURATIONS:
             for k in KNOWLEDGE:
                 print(f"  {o['name']:28s} {c['id']:16s} {k['id']:9s} ... ", end="", flush=True)
-                adversary = None
-                if not mock:
-                    adversary = ADVERSARIES[provider](model, system_prompt(o, c, k))
-                e = run_episode(o, c, k, turns, adversary=adversary, mock=mock)
+                try:
+                    adversary = None
+                    if not mock:
+                        adversary = ADVERSARIES[provider](model, system_prompt(o, c, k))
+                    e = run_episode(o, c, k, turns, adversary=adversary, mock=mock)
+                except Exception as exc:
+                    # An episode that could not be run is not evidence that the
+                    # controls held. It is a hole in the evidence and it is
+                    # reported as one.
+                    e = {"objective": o["id"], "objective_name": o["name"],
+                         "configuration": c["id"], "knowledge": k["id"],
+                         "status": "errored", "error": f"{type(exc).__name__}: {exc}"[:300],
+                         "succeeded": False, "calls_attempted": 0, "calls_permitted": 0,
+                         "distinct_approaches": 0, "seconds": 0, "record": [], "transcript": []}
                 e["provider"], e["model"] = provider, model
                 episodes.append(e)
-                print(("GOT THROUGH" if e["succeeded"] else "held") +
-                      f"  ({e['calls_attempted']} calls)")
+                if e["status"] == "errored":
+                    print(f"COULD NOT RUN  ({e['error'][:60]})")
+                else:
+                    print(("GOT THROUGH" if e["succeeded"] else "held") +
+                          f"  ({e['calls_attempted']} calls)")
 
     print()
     print(summary_table(episodes).replace("**", ""))
     print()
     got = [e for e in episodes if e["succeeded"]]
-    print(f"{len(got)} of {len(episodes)} episodes got through.")
+    errored = [e for e in episodes if e.get("status") == "errored"]
+    ran = len(episodes) - len(errored)
+    print(f"{len(got)} of {ran} episodes that ran got through.")
+    if errored:
+        print(f"{len(errored)} could not be run and are not counted either way.")
 
     if "--write" in sys.argv:
         (HERE / "red_team_results.json").write_text(json.dumps(episodes, indent=2) + "\n")

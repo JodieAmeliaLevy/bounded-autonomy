@@ -204,3 +204,71 @@ def test_the_loop_stops_as_soon_as_the_objective_is_met():
                              turns=5, adversary=stub)
     assert e["succeeded"]
     assert e["calls_attempted"] == 1
+
+
+# ---------------------------------------------------------------------------
+# A run that fell over is not evidence
+# ---------------------------------------------------------------------------
+
+class ExplodingAdversary(red_team.Adversary):
+    def __init__(self, exc):
+        self.exc = exc
+
+    def turn(self, results):
+        raise self.exc
+
+
+def test_transient_upstream_errors_are_recognised():
+    for message in ("503 UNAVAILABLE. This model is currently experiencing high demand",
+                    "429 RESOURCE_EXHAUSTED", "overloaded_error", "Connection reset by peer",
+                    "Request timeout"):
+        assert red_team._is_transient(RuntimeError(message)), message
+
+
+def test_real_bugs_are_not_retried():
+    for exc in (TypeError("bad argument"), KeyError("input_schema"),
+                ValueError("invalid model name")):
+        assert not red_team._is_transient(exc), exc
+
+
+def test_a_transient_failure_is_retried_and_then_succeeds():
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise RuntimeError("503 UNAVAILABLE high demand")
+        return "ok"
+
+    assert red_team.with_retry(flaky, attempts=5, base=0.001) == "ok"
+    assert attempts["n"] == 3
+
+
+def test_a_real_bug_is_raised_at_once_without_burning_retries():
+    attempts = {"n": 0}
+
+    def broken():
+        attempts["n"] += 1
+        raise TypeError("this is a bug, not a bad minute")
+
+    with pytest.raises(TypeError):
+        red_team.with_retry(broken, attempts=5, base=0.001)
+    assert attempts["n"] == 1
+
+
+def test_an_episode_that_completes_is_marked_completed():
+    e = red_team.run_episode(red_team.OBJECTIVES[0], red_team.CONFIGURATIONS[0],
+                             red_team.KNOWLEDGE[0], turns=2, mock=True)
+    assert e["status"] == "completed"
+
+
+def test_an_errored_episode_is_never_reported_as_held():
+    """The integrity point. If an episode could not be run, saying the controls
+    held is a claim the evidence does not support."""
+    errored = {"objective": "o1", "objective_name": "Read the secret",
+               "configuration": "gateway", "knowledge": "blind",
+               "status": "errored", "error": "503 UNAVAILABLE", "succeeded": False,
+               "calls_attempted": 0}
+    table = red_team.summary_table([errored])
+    assert "could not run" in table
+    assert "held" not in table

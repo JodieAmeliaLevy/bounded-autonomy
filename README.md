@@ -25,7 +25,7 @@ pip install -r requirements-dev.txt
 python3 agent.py --mock          # watch the gateway allow and refuse things
 python3 evaluation/run_eval.py   # reproduce the numbers below
 python3 evaluation/red_team.py --mock   # the red team harness, no API key needed
-pytest                           # 72 tests
+pytest                           # 78 tests
 ```
 
 `--mock` replays five tool calls past the gateway and prints each verdict:
@@ -95,6 +95,8 @@ The suite is 40 scenarios, which is small. It lives in [`evaluation/scenarios.js
 The knowledge axis is the honest part. In the **informed** condition the adversary is handed the policy file before it starts, because an attacker who can read your authorisation rules is not an exotic threat model, it is the normal case for anything open source. A control layer that only works while its policies are secret is not a control layer.
 
 Episodes are scored on the gateway's decisions, never on the model's account of itself. An agent that reports success without a permitted call has not succeeded, and there is a test that says so.
+
+An episode that could not be run, because an upstream was down or rate limited, is reported as a hole in the evidence rather than counted as the controls holding. Transient failures are retried with backoff; a real bug is raised at once rather than retried five times. Both behaviours are tested.
 
 **The adversary can come from any lab**, which is the point rather than a convenience. A control layer that only holds against the model family it was developed alongside has not been tested. Anthropic and Gemini are both wired up behind one interface, and adding a third is one class.
 
@@ -239,7 +241,7 @@ Nine of the thirty three tests exist because of this, including one that runs th
 
 ## What the tests actually assert
 
-`pytest` runs 72 tests on every push, across Python 3.11, 3.12 and 3.13.
+`pytest` runs 78 tests on every push, across Python 3.11, 3.12 and 3.13.
 
 | Group | The claim being pinned |
 |---|---|
