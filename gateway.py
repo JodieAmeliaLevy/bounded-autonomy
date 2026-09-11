@@ -76,6 +76,37 @@ def identity_for(tool_name: str) -> str:
     return TOOL_IDENTITIES.get(tool_name, UNASSIGNED_IDENTITY)
 
 
+def _true_case(path: Path) -> Path:
+    """Return the path as the filesystem actually spells it.
+
+    macOS and Windows filesystems are case insensitive but case preserving, and
+    Path.resolve() does not correct the case. So "workspace/SECRET_PLAN.txt"
+    resolves to itself, sails past a policy matching "*secret*", and then opens
+    the real secret_plan.txt anyway. Ask each directory what its entries are
+    actually called instead of trusting the spelling the caller supplied.
+    """
+    try:
+        parts, current = [], path
+        while current.parent != current:
+            parent, name = current.parent, current.name
+            if parent.is_dir():
+                entries = {e.name for e in parent.iterdir()}
+                # An exact match wins. Only when the spelling the caller gave
+                # does not literally exist do we look for a case variant, so
+                # this cannot confuse two genuinely different files on a case
+                # sensitive filesystem.
+                if name not in entries:
+                    for candidate in entries:
+                        if candidate.lower() == name.lower():
+                            name = candidate
+                            break
+            parts.append(name)
+            current = parent
+        return Path(current, *reversed(parts))
+    except OSError:
+        return path
+
+
 def _resource_for(tool_name: str, tool_input: dict):
     """Translate a tool call into the resource Cedar reasons about."""
 
@@ -86,7 +117,7 @@ def _resource_for(tool_name: str, tool_input: dict):
         requested = Path(tool_input.get("path", ""))
         if not requested.is_absolute():
             requested = HERE / requested
-        resolved = requested.resolve()
+        resolved = _true_case(requested.resolve())
 
         return (
             {"type": "File", "id": str(resolved)},
