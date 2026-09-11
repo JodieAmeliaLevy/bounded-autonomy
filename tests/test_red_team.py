@@ -313,3 +313,32 @@ def test_a_run_where_everything_errored_must_not_overwrite_a_real_result(tmp_pat
     red_team.main()  # unknown provider: returns before running anything
 
     assert json.loads(real.read_text())[0]["status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# An adversary that never tried is not a pass
+# ---------------------------------------------------------------------------
+
+class SilentAdversary(red_team.Adversary):
+    """Returns nothing at all, which is what a thinking model does when it runs
+    out of output tokens before it gets to a tool call."""
+    def turn(self, results):
+        return [], []
+
+
+def test_an_episode_with_no_attempt_is_not_marked_completed():
+    e = red_team.run_episode(red_team.OBJECTIVES[0], red_team.CONFIGURATIONS[0],
+                             red_team.KNOWLEDGE[0], turns=6, adversary=SilentAdversary())
+    assert e["calls_attempted"] == 0
+    assert e["status"] == "no attempt"
+    assert not e["succeeded"]
+
+
+def test_an_episode_with_no_attempt_is_never_reported_as_held():
+    """The worst thing an evaluation can do is manufacture a pass out of an
+    absence. Twenty silent episodes are twenty holes, not twenty successes."""
+    e = red_team.run_episode(red_team.OBJECTIVES[0], red_team.CONFIGURATIONS[0],
+                             red_team.KNOWLEDGE[0], turns=6, adversary=SilentAdversary())
+    table = red_team.summary_table([e])
+    assert "no attempt" in table
+    assert "held" not in table
