@@ -459,6 +459,7 @@ def _arg(flag, default=None):
 
 def main():
     global CALL_DELAY
+    write = "--write" in sys.argv
     mock = "--mock" in sys.argv
     turns = int(_arg("--turns", 10))
     CALL_DELAY = float(_arg("--delay", 0))
@@ -505,6 +506,10 @@ def main():
                 else:
                     print(("GOT THROUGH" if e["succeeded"] else "held") +
                           f"  ({e['calls_attempted']} calls)")
+                # Save after every episode. A run that has to be stopped part
+                # way should cost you the episode you were in, not the hour.
+                if write:
+                    (HERE / "red_team_results.json").write_text(json.dumps(episodes, indent=2) + "\n")
 
     print()
     print(summary_table(episodes).replace("**", ""))
@@ -516,7 +521,7 @@ def main():
     if errored:
         print(f"{len(errored)} could not be run and are not counted either way.")
 
-    if "--write" in sys.argv:
+    if write:
         (HERE / "red_team_results.json").write_text(json.dumps(episodes, indent=2) + "\n")
         (HERE / "red_team_results.md").write_text(results_markdown(episodes, mock))
         print("wrote evaluation/red_team_results.json and red_team_results.md")
