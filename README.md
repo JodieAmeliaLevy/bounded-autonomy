@@ -292,13 +292,25 @@ The fix has three parts and only the first is about strings:
 
 Nine of the ninety six tests exist because of this, including one that runs the whole path from tool call to filesystem rather than testing the gateway in isolation. Seven more exist because of its sequel, which a frontier model found in the adversarial run and which is written up above: the same defect, reached through the case of the filename rather than through `..`.
 
+### The same defect a third time, found by reading rather than by attacking
+
+After the case bug I went looking for the rest of the family instead of waiting for something to find it. There was one, in the other tool.
+
+`fetch_url` called `urllib.request.urlopen`, which follows redirects by default. The gateway authorised `example.com`, the server answered a 302, and the tool fetched wherever it was pointed. The allowlist was enforced on the first hop and nothing else. Two smaller things sat next to it: the host was read by splitting the URL on slashes, so `https://example.com@evil.com/` came back with a domain of `example.com@evil.com` and was refused by luck rather than by understanding, and `execute_tool` passed the model's string to `fetch_url` while `read_file` had already been changed to use the resource the gateway returned. That asymmetry was the tell.
+
+Fixed by refusing redirects outright, so any hop past the first has to come back through the gateway as a new call; by reading the host with `urlparse().hostname`, which is what the network stack will actually dial; by requiring https, which also closes `file://` reaching the filesystem through the network tool; and by making both tools act on the authorised resource. Twelve tests.
+
+**A gap that is still open.** The forbid rule matches on the filename, and matching names is the weakness underneath all three of these bugs rather than a detail of any one of them. A hard link gives the same inode a second name inside the workspace, `resolve()` does not resolve hard links, and the rule has nothing to say about it. That test is in the suite, marked as an expected failure with the reason written on it, so it is counted rather than hidden and it will tell me the day it starts passing. The real fix is to classify the resource instead of matching its name, and keep the name match as defence in depth. I have not built it yet.
+
+**What happens when the control point itself fails.** Before this week the answer was that Cedar raising or the policy file being unreadable produced a traceback, which is safe by accident rather than by choice. Both now resolve to a denial with a reason written into the audit log, and there are tests for a decision point that raises and a policy file that cannot be read.
+
 **Worked example: MCP.** The MCP specification makes authorisation optional ("Authorization is **OPTIONAL** for MCP implementations", [spec 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)), which makes an MCP estate the natural place to show what an external control point changes.
 
 ---
 
 ## What the tests actually assert
 
-`pytest` runs 96 tests on every push, across Python 3.11, 3.12 and 3.13.
+`pytest` runs 117 tests on every push, across Python 3.11, 3.12 and 3.13.
 
 | Group | The claim being pinned |
 |---|---|
@@ -338,9 +350,9 @@ Honest state of the build. Nothing here claims to be finished.
 |---|---|---|
 | **1. Agent with tool calls** | Raw API loop, three tools, a hard turn limit, no framework I cannot explain line by line | **Done** |
 | **2. MCP in the loop** | One reference MCP server, agent tools routed through it | Not started |
-| **3. The control point** | Policy gateway between agent and every tool call. One identity per tool, delegation required, default deny, scoped allow, secrets forbidden outright, every decision logged | **Done**, on Cedar rather than an `if` statement, with 40 tests |
+| **3. The control point** | Policy gateway between agent and every tool call. One identity per tool, delegation required, default deny, scoped allow, secrets forbidden outright, every decision logged | **Done**, on Cedar rather than an `if` statement, with 61 tests |
 | **4. Containment** | Execution inside a sandbox, filesystem and network bounded | **Done.** `run_code` executes in a disposable E2B sandbox, and the gateway refuses it outright without one. `python3 sandbox_tools.py` runs `rm -rf` against the sandbox home directory to show the blast radius is bounded. Both verdicts are in `audit_log.jsonl` |
-| **5. The audit trail** | Structured logging of every step, then OpenTelemetry GenAI agent spans | **Half.** JSONL logging of every decision, with principal and rule name. No spans yet |
+| **5. The audit trail** | Structured logging of every step, then OpenTelemetry GenAI agent spans | **Half.** JSONL logging of every decision, with principal and rule name, hash chained so an edited or deleted record shows up (`gateway.verify_audit_log`). No spans yet |
 | **6. The evaluation** | Scenarios run across control configurations and two or three models | **Done, at two levels.** 40 deterministic scenarios across three configurations on every push, plus 60 adversarial episodes against live models across two labs: a small model, then a frontier model that found a real bypass, then the same frontier model against the patched gateway. Not yet on [Inspect](https://inspect.aisi.org.uk/) with [ControlArena](https://github.com/UKGovernmentBEIS/control-arena) |
 | **7. The curve** | Missed harmful actions against unnecessary blocks, per configuration | **Done for the deterministic suite.** See above. Regenerates from the code, and a test fails if the published numbers drift from what the code produces |
 

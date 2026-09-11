@@ -67,6 +67,7 @@ permit(
   resource
 ) when {
   principal has on_behalf_of &&
+  resource.scheme == "https" &&
   ["example.com", "raw.githubusercontent.com"].contains(resource.domain)
 };
 

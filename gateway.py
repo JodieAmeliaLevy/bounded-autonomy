@@ -19,11 +19,13 @@ Least privilege is structural. It does not depend on anyone remembering to
 write the right condition into the right policy.
 """
 
+import hashlib
 import json
 import os
 import re
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from cedarpy import is_authorized, AuthzResult
 
@@ -32,7 +34,17 @@ HERE = Path(__file__).parent
 WORKSPACE = (HERE / "workspace").resolve()
 
 POLICY_FILE = HERE / "policies" / "agent_policies.cedar"
-POLICIES = POLICY_FILE.read_text()
+
+# If the rules cannot be read, this enforcement point has nothing to enforce.
+# It must not therefore let everything past. The failure is recorded here and
+# turned into a denial in check(), so the reason appears in the audit log
+# rather than as a traceback nobody reads.
+try:
+    POLICIES = POLICY_FILE.read_text()
+    POLICY_LOAD_ERROR = None
+except OSError as exc:
+    POLICIES = ""
+    POLICY_LOAD_ERROR = f"{type(exc).__name__}: {exc}"
 
 # Overridable so the test suite does not write into the real log.
 AUDIT_LOG = Path(os.environ.get("AUDIT_LOG", HERE / "audit_log.jsonl"))
@@ -125,9 +137,18 @@ def _resource_for(tool_name: str, tool_input: dict):
         )
 
     if tool_name == "fetch_url":
+        # Parse the URL properly rather than splitting on slashes. A string
+        # split hands "example.com@evil.com" back as the domain, and while the
+        # allowlist happens to reject that, it rejects it by accident. The
+        # hostname is what the network stack will actually connect to, so the
+        # hostname is what the policy should judge. urlparse lowercases it and
+        # drops any userinfo and port.
         url = tool_input.get("url", "")
-        domain = url.split("//", 1)[-1].split("/", 1)[0]
-        return {"type": "Url", "id": url}, {"domain": domain}
+        parsed = urlparse(url)
+        return (
+            {"type": "Url", "id": url},
+            {"domain": parsed.hostname or "", "scheme": (parsed.scheme or "").lower()},
+        )
 
     if tool_name == "run_code":
         return {"type": "Sandbox", "id": "e2b"}, {}
@@ -164,11 +185,71 @@ def _build(tool_name: str, tool_input: dict, context: dict, identity: str, deleg
     return request, entities
 
 
+GENESIS = "0" * 64
+
+
+def _previous_hash() -> str:
+    """The hash of the last record in the log, or GENESIS if there is none.
+
+    Read back from the file rather than held in memory on purpose. A cached
+    value would still chain correctly after somebody truncated the log, which
+    is the case the chain exists to catch.
+    """
+    try:
+        last = None
+        with open(AUDIT_LOG, "rb") as f:
+            for line in f:
+                if line.strip():
+                    last = line
+    except OSError:
+        return GENESIS
+    if last is None:
+        return GENESIS
+    try:
+        return json.loads(last)["hash"]
+    except (ValueError, KeyError):
+        # The tail is unreadable, so the chain is already broken. Say so in the
+        # next record rather than quietly starting a fresh chain over the top.
+        return "unreadable"
+
+
 def _log(event: dict):
     event["timestamp"] = time.time()
+    event["prev"] = _previous_hash()
+    event["hash"] = hashlib.sha256(
+        json.dumps(event, sort_keys=True).encode()
+    ).hexdigest()
     AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(AUDIT_LOG, "a") as f:
         f.write(json.dumps(event) + "\n")
+
+
+def verify_audit_log(path=None):
+    """Walk the chain. Returns (ok, index of the first bad record or None).
+
+    This does not make the log tamper proof, because anyone who can write the
+    file can rewrite every record after the one they changed. It makes it
+    tamper evident against anything less than that: an edited line, a deleted
+    line, a reordered line.
+    """
+    path = Path(path) if path is not None else AUDIT_LOG
+    expected = GENESIS
+    try:
+        lines = [l for l in path.read_text().splitlines() if l.strip()]
+    except OSError:
+        return True, None
+    for i, line in enumerate(lines):
+        try:
+            record = json.loads(line)
+            claimed = record.pop("hash")
+        except (ValueError, KeyError):
+            return False, i
+        if record.get("prev") != expected:
+            return False, i
+        if hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest() != claimed:
+            return False, i
+        expected = claimed
+    return True, None
 
 
 def check(
@@ -196,16 +277,27 @@ def check(
     identity = identity or identity_for(tool_name)
     request, entities = _build(tool_name, tool_input, context or {}, identity, delegated)
 
-    result: AuthzResult = is_authorized(request, POLICIES, entities)
-    allowed = result.allowed
-    reasons = [POLICY_NAMES.get(r, r) for r in result.diagnostics.reasons]
-
-    if allowed and reasons:
-        reason = "permitted by: " + ", ".join(reasons)
-    elif not allowed and reasons:
-        reason = "blocked by: " + ", ".join(reasons)
+    if POLICY_LOAD_ERROR is not None:
+        allowed, reason = False, f"blocked by policy load failure: {POLICY_LOAD_ERROR}"
     else:
-        reason = "blocked by default deny: no policy permits this call"
+        try:
+            result: AuthzResult = is_authorized(request, POLICIES, entities)
+            allowed = result.allowed
+            reasons = [POLICY_NAMES.get(r, r) for r in result.diagnostics.reasons]
+
+            if allowed and reasons:
+                reason = "permitted by: " + ", ".join(reasons)
+            elif not allowed and reasons:
+                reason = "blocked by: " + ", ".join(reasons)
+            else:
+                reason = "blocked by default deny: no policy permits this call"
+        except Exception as exc:
+            # A decision point that cannot answer has not said yes. Every route
+            # out of this function other than an explicit permit is a denial,
+            # and the reason is written down so the failure is visible in the
+            # log instead of surfacing as a traceback.
+            allowed = False
+            reason = f"blocked by enforcement failure: {type(exc).__name__}: {exc}"
 
     _log({
         "principal": f'Agent::"{identity}"',

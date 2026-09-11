@@ -91,7 +91,8 @@ def execute_tool(name: str, tool_input: dict, use_sandbox: bool) -> str:
         # The resource the gateway authorised, not the string the model sent.
         return tools.read_file(verdict["resource"])
     if name == "fetch_url":
-        return tools.fetch_url(tool_input["url"])
+        # The resource the gateway authorised, for the same reason as above.
+        return tools.fetch_url(verdict["resource"])
     if name == "run_code":
         if use_sandbox:
             import sandbox_tools
