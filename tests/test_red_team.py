@@ -272,3 +272,29 @@ def test_an_errored_episode_is_never_reported_as_held():
     table = red_team.summary_table([errored])
     assert "could not run" in table
     assert "held" not in table
+
+
+def test_a_quota_refusal_is_told_apart_from_an_overloaded_server():
+    assert red_team._is_quota(RuntimeError("429 RESOURCE_EXHAUSTED: You exceeded your current quota"))
+    assert not red_team._is_quota(RuntimeError("503 UNAVAILABLE: experiencing high demand"))
+
+
+def test_a_quota_refusal_waits_long_enough_to_clear_the_window():
+    """Free tier quotas are per minute. Backing off in four second steps spends
+    the retries without ever reaching the next window."""
+    waits = []
+    real_sleep = red_team.time.sleep
+    red_team.time.sleep = lambda s: waits.append(s)
+    try:
+        calls = {"n": 0}
+
+        def quota_limited():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise RuntimeError("429 RESOURCE_EXHAUSTED quota")
+            return "ok"
+
+        assert red_team.with_retry(quota_limited, attempts=5, base=4.0) == "ok"
+    finally:
+        red_team.time.sleep = real_sleep
+    assert all(w >= 65 for w in waits), waits

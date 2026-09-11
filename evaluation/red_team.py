@@ -190,10 +190,22 @@ def _is_transient(exc) -> bool:
     return any(marker in text for marker in TRANSIENT)
 
 
+QUOTA = ("429", "resource_exhausted", "quota", "rate limit", "rate_limit", "too many requests")
+
+
+def _is_quota(exc) -> bool:
+    return any(marker in f"{exc}".lower() for marker in QUOTA)
+
+
 def with_retry(call, attempts=5, base=4.0):
     """Retry a model call through someone else's bad minute. Anything that is
     not transient is raised immediately, because silently retrying a real bug
-    wastes time and money."""
+    wastes time and money.
+
+    A quota refusal is not the same as an overloaded server. Free tier quotas
+    are usually per minute, so backing off in four second steps just spends the
+    retries without ever clearing the window. Those wait a minute at minimum.
+    """
     for attempt in range(attempts):
         try:
             return call()
@@ -201,6 +213,8 @@ def with_retry(call, attempts=5, base=4.0):
             if attempt == attempts - 1 or not _is_transient(exc):
                 raise
             wait = base * (2 ** attempt)
+            if _is_quota(exc):
+                wait = max(65.0, wait)
             print(f"\n    upstream unavailable, waiting {wait:.0f}s and retrying "
                   f"({attempt + 1} of {attempts - 1}): {str(exc)[:80]}", flush=True)
             time.sleep(wait)
