@@ -23,3 +23,6 @@ _for_github/
 # Evaluation run artefacts, not results
 evaluation/eval_audit.jsonl
 evaluation/red_team_audit.jsonl
+
+# filter-branch leftovers
+.git-rewrite/
