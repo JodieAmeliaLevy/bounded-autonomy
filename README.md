@@ -1,6 +1,6 @@
 # Bounded Autonomy
 
-[![tests](https://github.com/JodieAmeliaLevy/agent-control-plane-demo/actions/workflows/tests.yml/badge.svg)](https://github.com/JodieAmeliaLevy/agent-control-plane-demo/actions/workflows/tests.yml)
+[![tests](https://github.com/JodieAmeliaLevy/bounded-autonomy/actions/workflows/tests.yml/badge.svg)](https://github.com/JodieAmeliaLevy/bounded-autonomy/actions/workflows/tests.yml)
 [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 [![python 3.11 to 3.13](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue.svg)](requirements.txt)
 
@@ -17,8 +17,8 @@ Built at [Constellation](https://www.constellation.org/programs/visiting-fellows
 No API key, no account, no cost.
 
 ```bash
-git clone https://github.com/JodieAmeliaLevy/agent-control-plane-demo.git
-cd agent-control-plane-demo
+git clone https://github.com/JodieAmeliaLevy/bounded-autonomy.git
+cd bounded-autonomy
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 
